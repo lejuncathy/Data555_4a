@@ -1,0 +1,263 @@
+---
+title: "plots"
+author: "Lejun Shen"
+output:
+  flexdashboard::flex_dashboard:
+    orientation: columns
+social: menu
+source_code: embed
+---
+Overview
+=====================================
+
+Column {data-width=650}
+-------------------------------------
+
+### Measles Dynamics: Simulation vs Real-World Data
+
+This dashboard explores measles transmission dynamics by comparing simulated epidemic trajectories with observed historical case data from London.  
+The goal is to help users understand how infectious disease patterns evolve over time and evaluate how well simple transmission models reflect real-world outbreaks.
+
+Use the interactive plots to explore trends, compare patterns, and gain insights into epidemic behavior.
+
+Understanding measles transmission patterns can help researchers and public health professionals evaluate how epidemic dynamics evolve over time.
+By comparing simulated and observed data, this dashboard provides an accessible way to interpret infectious disease behavior and assess how well simple transmission models reflect real outbreaks.
+
+
+Column {data-width=350}
+-------------------------------------
+
+### Summary
+
+```{r}
+library(flexdashboard)
+
+valueBox(
+  value = "TSIR-based Simulation",
+  caption = "Model-generated epidemic trajectories",
+  icon = "fa-cogs",
+  color = "primary"
+)
+
+valueBox(
+  value = "London Measles Data",
+  caption = "Historical surveillance dataset",
+  icon = "fa-database",
+  color = "info"
+)
+
+```
+
+Interactive Visualizations
+=====================================
+
+Column {data-width=50}
+-------------------------------------
+
+```{r setup, include=FALSE}
+library(tsiR)
+library(plotly)
+library(dplyr)
+library(tidyr)
+
+```
+
+```{R message=FALSE}
+
+library(dplyr)
+library(plotly)
+
+# ---- Simulation ----
+I0 <- 32
+S0 <- 148891
+beta <- 0.000009
+alpha <- 0.96
+births <- 1916
+T <- 391
+times <- 1:T
+
+pred <- predicttsir(
+  times = times,
+  births = births,
+  beta = beta,
+  alpha = alpha,
+  S0 = S0,
+  I0 = I0,
+  nsim = 50,
+  stochastic = TRUE
+)
+
+It <- pred$I$mean
+St <- pred$S$mean
+
+df_plot <- data.frame(
+  Time = times,
+  Infected = It,
+  Susceptible = St
+)
+
+last_point <- df_plot[nrow(df_plot), ]
+
+
+x_max <- max(df_plot$Time) + 400
+
+
+label_x <- max(df_plot$Time) +1
+
+fig_sim <- plot_ly(df_plot, x = ~Time) %>%
+  add_lines(
+    y = ~Infected,
+    name = "Infected cases",
+    line = list(width = 4, color = "#1f77b4"),
+    hovertemplate = paste(
+      "<b>Infected cases</b><br>",
+      "Time (biweeks): %{x}<br>",
+      "Cases: %{y:.0f}<extra></extra>"
+    )
+  ) %>%
+  add_lines(
+    y = ~Susceptible,
+    name = "Susceptible Population",
+    line = list(width = 4, color = "#ff7f0e"),
+    hovertemplate = paste(
+      "<b>Susceptible population</b><br>",
+      "Time (biweeks): %{x}<br>",
+      "Population: %{y:.0f}<extra></extra>"
+    )
+  ) %>%
+  add_text(
+    x = label_x,
+    y = last_point$Infected,
+    text = "Infected cases",
+    textposition = "middle right",
+    textfont = list(size = 14, color = "#1f77b4"),
+    showlegend = FALSE,
+    hoverinfo = "skip"
+  ) %>%
+  add_text(
+    x = label_x,
+    y = last_point$Susceptible,
+    text = "Susceptible population",
+    textposition = "middle right",
+    textfont = list(size = 14, color = "#ff7f0e"),
+    showlegend = FALSE,
+    hoverinfo = "skip"
+  ) %>%
+  layout(
+    title = "Simulation: Susceptible and Infectious over Time",
+    xaxis = list(
+      title = "Time (biweeks)",
+      range = c(min(df_plot$Time), x_max)
+    ),
+    yaxis = list(
+      title = "Population (individuals)"
+    ),
+    hovermode = "x unified",
+    showlegend = FALSE,
+    margin = list(l = 80, r = 170, t = 70, b = 80)
+  )
+
+fig_sim
+```
+**Takeaway:**  
+The simulation shows that the susceptible population remains much larger than the infected population throughout the study period. After the initial outbreak, the infected cases fluctuate but gradually decrease in amplitude, while the susceptible population settles into a relatively stable pattern. This indicates that the epidemic dynamics become more stable over time.
+
+
+Column {data-width=50}
+-------------------------------------
+
+```{R message=FALSE}
+# ---- London ----
+data("twentymeas")
+London <- twentymeas$London
+London <- subset(London, time > 1950)
+
+parms <- estpars(London, xreg = "cumcases", IP = 2, seasonality = "standard",
+                 regtype = "gaussian", sigmamax = 3, family = "gaussian",
+                 link = "identity", userYhat = numeric(),
+                 alpha = NULL, sbar = NULL, printon = FALSE)
+
+Z    <- parms$Z
+sbar <- parms$sbar
+pop0 <- parms$pop
+rho  <- parms$rho
+
+Iadj <- London$cases * rho
+Zminus <- head(Z, -1)
+S_est <- sbar + Zminus
+
+It <- head(Iadj, -1)
+St <- S_est
+n  <- length(It)
+
+output_df <- data.frame(
+  t  = seq_len(n),
+  It = It,
+  St = St
+)
+
+I_mid <- output_df$It[2:(n-1)]
+t_mid <- output_df$t[2:(n-1)]
+
+fig_london <- plot_ly() %>%
+  add_trace(
+    x = output_df$t, y = output_df$It,
+    type = "scatter", mode = "lines+markers",
+    name = "infectious cases number",
+    marker = list(size = 6),
+    hovertemplate = "time=%{x}<br>Infectious number at time=%{y}<extra></extra>"
+  ) %>%
+  add_trace(
+    x = t_mid, y = I_mid,
+    type = "scatter", mode = "markers",
+    name = "Infected Mid points",
+    marker = list(size = 7),
+    hovertemplate = "time midpoint=%{x}<br>Infectious number at mid time=%{y}<extra></extra>"
+  ) %>%
+  layout(
+    title = "Measles Infection Counts in London (with Midpoints)",
+    xaxis = list(title = "time(biweeks)"),
+    yaxis = list(title = "infectious number over time"),
+    hovermode = "x unified"
+  )
+
+fig_london
+
+
+
+```
+
+**Takeaway:**  
+This visualization shows strong cyclical outbreak patterns in measles infection counts over time. The midpoint-adjusted infected cases closely follow the reported counts, while providing a clearer representation of infection timing within each reporting interval. Together, these patterns highlight the recurring epidemic behavior of measles in London.
+
+
+
+Dataset Description
+=====================================
+
+Column
+-------------------------------------
+
+
+**Data Sources**
+
+This dashboard uses two datasets:
+
+1. **Historical London Measles Data** — from the `tsiR` R package (`twentymeas$London`). 
+This dataset contains biweekly measles case counts recorded through passive disease 
+surveillance in London. The subset used includes observations from **1950 onward**, 
+comprising approximately **391 biweekly records (~15 years)**. Data were collected 
+as part of routine public health reporting and represent the number of reported 
+measles cases per two-week interval.
+
+2. **Simulated TSIR Data** — generated using the `predicttsir()` function in the 
+`tsiR` package, with user-specified epidemic parameters (β = 0.000009, α = 0.96, 
+initial susceptibles S₀ = 148,891, initial infecteds I₀ = 32, biweekly births = 1,916). 
+The simulation spans **391 biweeks** and uses stochastic modeling with 50 simulation runs. 
+This is model-generated output, not direct measurement data.
+
+**Study Population:** Residents of London, England.  
+**Time Period:** Post-1950 (historical data); 391 biweeks simulated trajectory.  
+**Collection Method:** Passive surveillance (historical); stochastic TSIR simulation (modeled).
+
+
